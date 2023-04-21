@@ -1,9 +1,12 @@
 from dotenv import load_dotenv
-from logging.handlers import RotatingFileHandler
+import logging
+import os
+import time
+import sys
+import requests
 from exceptions import HTTPStatusException
 from http import HTTPStatus
-import os, requests, time, logging, sys, telegram
-
+import telegram
 
 load_dotenv()
 
@@ -14,7 +17,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=handlers
 )
-
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -34,7 +36,7 @@ HOMEWORK_VERDICTS = {
 def check_tokens():
     """Проверяет доступность переменных окружения."""
     if (PRACTICUM_TOKEN or TELEGRAM_TOKEN or TELEGRAM_CHAT_ID) is None:
-        message = 'Отсутствие обязательных переменных окружения во время запуска бота!!!'
+        message = 'Отсутствие обязательных переменных окружения!'
         logger.critical(msg=message)
         sys.exit()
 
@@ -45,7 +47,9 @@ def send_message(bot, message):
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug(f'Сообщение "{message}" успешно отправлено в Telegram')
     except Exception as error:
-        logger.error(f'Сбой при отправке сообщения "{message}" в Telegram: {error}')
+        logger.error(
+            f'Сбой при отправке сообщения "{message}" в Telegram: {error}'
+        )
 
 
 def get_api_answer(timestamp):
@@ -67,11 +71,13 @@ def check_response(response):
     homework = response.get('homeworks')
     current_date = response.get('current_date')
     if homework is None:
-       raise KeyError('В ответе API отсутствует ключ "homeworks"!')
+        raise KeyError('В ответе API отсутствует ключ "homeworks"!')
     if current_date is None:
-       raise KeyError('В ответе API отсутствует ключ "current_date"!')
+        raise KeyError('В ответе API отсутствует ключ "current_date"!')
     if not isinstance(homework, list):
-        raise TypeError('В ответе API под ключом "homework" получен не список!')
+        raise TypeError(
+            'В ответе API под ключом "homework" получен не список!'
+        )
     return homework
 
 
@@ -84,7 +90,10 @@ def parse_status(homework):
     if homework_status is None:
         raise KeyError('Ключ homework_status не найден')
     if homework_status not in HOMEWORK_VERDICTS:
-        raise ValueError(f'В ответе API обнаружен неожиданный статус домашней работы: {homework_status}')
+        raise ValueError(
+            f'В ответе API обнаружен неожиданный статус домашней работы:'
+            f'{homework_status}'
+        )
     else:
         verdict = HOMEWORK_VERDICTS[homework_status]
     return (f'Изменился статус проверки работы "{homework_name}". {verdict}')
