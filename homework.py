@@ -105,7 +105,7 @@ def main():
             homework = check_response(response)[0]
             message = parse_status(homework)
             if message != hw_status:
-                logger.info(f'Статус проверки домашней работы изменился: {message}!')
+                logger.info(message)
                 send_message(bot, message)
                 hw_status = message
         except Exception as error:
