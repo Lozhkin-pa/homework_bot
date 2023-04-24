@@ -4,7 +4,7 @@ import os
 import time
 import sys
 import requests
-from exceptions import HTTPStatusException
+from exceptions import HTTPStatusException, MyTelegramException
 from http import HTTPStatus
 import telegram
 
@@ -12,11 +12,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 handlers = [logging.StreamHandler(sys.stdout)]
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=handlers
-)
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -35,32 +30,43 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    if (PRACTICUM_TOKEN or TELEGRAM_TOKEN or TELEGRAM_CHAT_ID) is None:
-        message = 'Отсутствие обязательных переменных окружения!'
-        logger.critical(msg=message)
-        sys.exit()
+    return all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID])
 
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram чат."""
     try:
+        logger.debug('Начало отправки сообщения в Telegram')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug(f'Сообщение "{message}" успешно отправлено в Telegram')
     except Exception as error:
         logger.error(
             f'Сбой при отправке сообщения "{message}" в Telegram: {error}'
         )
+        raise MyTelegramException(error)
+    else:
+        logger.debug(f'Сообщение "{message}" успешно отправлено в Telegram')
 
 
 def get_api_answer(timestamp):
     """Делает запрос к эндпоинту Практикум.Домашка."""
-    payload = {'from_date': timestamp}
+    request_params = {
+        'headers': HEADERS,
+        'url': ENDPOINT,
+        'params': {
+            'from_date': timestamp
+        },
+    }
     try:
-        response = requests.get(url=ENDPOINT, headers=HEADERS, params=payload)
+        logger.debug('Начало отправки запроса к эндпоинту')
+        response = requests.get(**request_params)
     except Exception as error:
         logger.error(f'Сбой при запросе к эндпоинту: {error}')
     if response.status_code != HTTPStatus.OK:
-        raise HTTPStatusException('Полученный статус отличается от 200!')
+        raise HTTPStatusException(
+            f'Получен код ответа HTTP-статуса: {response.status_code}. '
+            f'Заголовки ответа: {response.headers} '
+            f'Содержание ответа: {response.text}'
+        )
     return response.json()
 
 
@@ -83,6 +89,8 @@ def check_response(response):
 
 def parse_status(homework):
     """Извлекает из информации о конкретной домашней работе её статус."""
+    if len(homework) == 0:
+        raise ValueError('Новый статус не появился. Список работ пуст')
     homework_name = homework.get('homework_name')
     homework_status = homework.get('status')
     if homework_name is None:
@@ -101,22 +109,36 @@ def parse_status(homework):
 
 def main():
     """Основная логика работы бота."""
-    check_tokens()
+    if not check_tokens():
+        logger.critical('Отсутствие обязательных переменных окружения!')
+        sys.exit()
+
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     logger.info('Бот запущен!')
     timestamp = int(time.time())
-    hw_status = ''
+
+    current_report = {}
+    prev_report = {}
 
     while True:
         try:
             response = get_api_answer(timestamp)
-            timestamp = response.get('current_date')
+            timestamp = response.get('current_date', timestamp)
             homework = check_response(response)[0]
-            message = parse_status(homework)
-            if message != hw_status:
-                logger.info(message)
-                send_message(bot, message)
-                hw_status = message
+            if homework:
+                message = parse_status(homework)
+                current_report[
+                    homework.get('homework_name')
+                ] = homework.get('status')
+                if current_report != prev_report:
+                    logger.info(message)
+                    send_message(bot, message)
+                    prev_report = current_report.copy()
+                    current_report[
+                        homework.get('homework_name')
+                    ] = homework.get('status')
+                else:
+                    logger.debug('В ответе отсутствует новый статус')
         except Exception as error:
             logger.critical(f'Сбой в работе программы: {error}!')
         finally:
@@ -124,4 +146,10 @@ def main():
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level=logging.INFO,
+        format=('%(asctime)s - %(name)s - %(funcName)s - %(lineno)d'
+                '- [%(levelname)s] - %(message)s'),
+        handlers=handlers
+    )
     main()
